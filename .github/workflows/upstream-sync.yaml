@@ -5,6 +5,11 @@ name: Upstream Release Sync
 #   1. pushes the release tag into this fork
 #   2. recreates the GitHub Release here
 #   3. opens a PR containing every commit from that release into the default branch
+#
+# Requires a repo/org secret SYNC_TOKEN: a PAT with `repo` + `workflow` scope
+# (classic) or Contents:write + Pull-requests:write + Workflows:write (fine-grained).
+# The default GITHUB_TOKEN cannot push refs that modify .github/workflows/*, which
+# upstream release commits routinely do.
 
 on:
   schedule:
@@ -22,17 +27,26 @@ permissions:
 
 env:
   UPSTREAM: ${{ github.event.inputs.upstream || 'Paymenter/Paymenter' }}
+  GH_TOKEN: ${{ secrets.SYNC_TOKEN }}
 
 jobs:
   sync:
     name: Check upstream releases
     runs-on: ubuntu-24.04
     steps:
+      - name: Verify SYNC_TOKEN is configured
+        run: |
+          if [ -z "${GH_TOKEN}" ]; then
+            echo "::error::SYNC_TOKEN secret is not set. Create a PAT with repo+workflow scope and add it as the SYNC_TOKEN secret."
+            exit 1
+          fi
+
       - name: Checkout fork (full history + tags)
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
           fetch-tags: true
+          token: ${{ secrets.SYNC_TOKEN }}
 
       - name: Configure git
         run: |
@@ -46,8 +60,6 @@ jobs:
 
       - name: Find the latest upstream release missing from this fork
         id: check
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
 
@@ -83,8 +95,6 @@ jobs:
 
       - name: Recreate the GitHub Release
         if: steps.check.outputs.found == 'true'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
           TAG="${{ steps.check.outputs.tag }}"
@@ -101,8 +111,6 @@ jobs:
 
       - name: Open PR with all commits from the release
         if: steps.check.outputs.found == 'true'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
           TAG="${{ steps.check.outputs.tag }}"
